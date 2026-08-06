@@ -583,7 +583,7 @@ function bsphpEncryptedResponseFromPlainText(plainText) {
 function normalizeIncomingBsphpBody(body) {
   if (!body || typeof body !== "object") return {};
   const out = { ...body };
-  const parameter = String(out.parameter || "");
+  const parameter = String(out.parameter || "").replace(/ /g, "+");
   if (!parameter) return out;
   try {
     const decoded = decodeURIComponent(parameter);
@@ -605,6 +605,7 @@ function normalizeIncomingBsphpBody(body) {
     }
   } catch (e) {
     out._bsphp_decode_error = e.message;
+    console.log(`[via] parameter decode failed: ${e.message}`);
   }
   return out;
 }
