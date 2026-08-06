@@ -673,15 +673,7 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
 async function handleViaLegacyApi(req, res, api) {
   const { raw, body } = await collectBodyLoose(req);
   console.log(`[via] api=${api} keys=${Object.keys(body || {}).join(",") || "-"} rawLen=${raw.length}`);
-  const reqApi = String(body.api || body.action || "").toLowerCase();
-  const wantsBsphpEncrypted =
-    api === "bsphp" ||
-    !!body.parameter ||
-    !!body.icid ||
-    !!body.icpwd ||
-    !!body.maxoror ||
-    reqApi === "login.ic" ||
-    raw.includes("parameter=");
+  const wantsBsphpEncrypted = true;
   const reply = viaLegacySuccessBody(api, body);
   if (wantsBsphpEncrypted) {
     const encrypted = bsphpEncryptedResponseText(reply);
