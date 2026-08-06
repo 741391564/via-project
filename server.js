@@ -531,6 +531,38 @@ function viaApiFromPath(pathname) {
   return "";
 }
 
+const BSPHP_SERVER_PRIVATE_KEY_B64 =
+  "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC+6619/uobvma+7uQkdW5sUcNW56z7/BFDRAeRukcAKztzs/mqeX++XX5rbzigUI7gBL0rl+QLJ8OQfP3pW+VtVvv4VIISvNvIFQ8uX0DwlrRbEbB1Wv9iFYF1b8/zdZ60pil/k+krjyqSMrdJN0aKKU+w+91t2Po8juZh+6WfLTtH027FnI5jBoAlX5ofOx2bJtTBZT8zYgLzRh31ad/M5npb3HsxfAGfdX9/nevvPnmzKebIpO+5nGmndRHimLcyuTA+rdkxnVi4C1Qr1QCIdQjIu5kMcpFq1gsUtEuo1kvL3xDE0AriGYlqYFmywhhei41bGPZ2LLWi1rucB8iDAgMBAAECggEBAIFVTlYIFbdtqFS3qD06f+9JBDcfAoRBIcCbmTUTJ33py4B57yuY2vyugTFuSsHvUJpZG30ojAcyjLyYr7kh063aOx7iwKrI3WoROhOD244fyVXYCd22I0LipqxTbl/S0gw2c+5E2LP1bDVVvewPUe3ORnnyZPJBBmN3uoGt42iMJBC2KL5AxV1aJeyExUVSlN5J9aLBBC0T0BLNNBTqv8P0ORfAEW+nUIuu8QyAjQzA7JvudcXac9rRXTp5Ntjl4+d4I3m1/Ajdl7/f8wU8zgTm5NBln0ZtBcUitS2r7d9uWfBqI2S8j9AeUBY59v8YkkqjXvedvXGle8dXh40RqUECgYEA3TwVZnYTN3qQ+g+CTbmI/+jlIJV5MMFx5Vv6+JphYWF47RwC51fqqWOaqdcOlwWOF6yBB4MoKEsZiE3J7i94eUVpv+5ypRd3VWnCEFtPQLvytQtia4Ql6JGuhheXzsSTAAAI9Q0eM0spKxvouRvUWuvkFVskK0ac1axYlVHThlkCgYEA3OwbcBn4ckwUif25B5rcnMe8sAQG9OB3VwIT6U4H+4JmoE0m3KsKgTQJ6AWA0JSi7ZaXbNIFo0IalFYx1Q73ksyC7Ru0GdZre0g+rzLxQpdoakFb8pPgXhrRbVJaiSSXG13Wl//AHcXdPwbuMrlj9sTw5h5gBHXHSsu75r3wIjsCgYB9U7ozzxPXy+ExJ3QDn+VSQ5b5PHPpAM0Kx26HQr2DsvoUKFgkwhM3XiuRpzimqQjztE9r+ArZuKGAK8EG43F2EbJ0fhoIGCEMC9tZ9MASxeYaVZatnbDz7QNXByqCga1cxKhOWd4P5LYvq6HMq01DLHqK9pSox1m1Wercu/v+EQKBgEuIck0epAI4HuGbHRMLkJgN9mZbyiEZSdQ2wqYG5tXIHNx75GiYFixcpXJtx0AJQbdnwHgVSpYp+Lp0ye7lgiHvyGfXC/m1hOQOrFfsW+5/o9SIai6C/rhOBQKSoJ+5IezaZY9sgrvrNZzh+rjfB92MMi0Lf5qmxi+9fo4CrMKXAoGBANNApQP2Y6ftMfVGEIpeVSn60wsvmmIo0HsPDnwbMKWug63aCmanJAWr5jVqht5kM16qD1d3FUDxDONEOJQVJpVF9nwcq6U16C8rPCNd4Iop9dnCNi8cbENxPk9voJlpqyc7GfnOn6n07L4U7WXOTVNFEq68MLky2EUM1UXrty31";
+
+function pemFromDerBase64(label, b64) {
+  return `-----BEGIN ${label}-----\n${String(b64).match(/.{1,64}/g).join("\n")}\n-----END ${label}-----`;
+}
+
+const bsphpServerPrivateKeyPem = pemFromDerBase64("PRIVATE KEY", BSPHP_SERVER_PRIVATE_KEY_B64);
+const bsphpServerPublicKey = crypto.createPublicKey(bsphpServerPrivateKeyPem);
+
+function md5Hex(input) {
+  return crypto.createHash("md5").update(String(input), "utf8").digest("hex");
+}
+
+function aes128CbcEncryptBase64(key16, plainText) {
+  const key = Buffer.from(String(key16), "utf8");
+  const cipher = crypto.createCipheriv("aes-128-cbc", key, key);
+  return Buffer.concat([cipher.update(String(plainText), "utf8"), cipher.final()]).toString("base64");
+}
+
+function bsphpEncryptedResponseText(bodyObj) {
+  const aesKey = crypto.randomBytes(8).toString("hex").slice(0, 16);
+  const plainJson = JSON.stringify(bodyObj);
+  const cipherB64 = aes128CbcEncryptBase64(aesKey, plainJson);
+  const signPlain = `0|AES-128-CBC|${aesKey}|${md5Hex(cipherB64)}|json`;
+  const rsaB64 = crypto.publicEncrypt(
+    { key: bsphpServerPublicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
+    Buffer.from(signPlain, "utf8")
+  ).toString("base64");
+  return `OK|${cipherB64}|${rsaB64}`;
+}
+
 function viaLegacySuccessBody(api = "gg", requestBody = {}) {
   const expire = nowUnix() + 3650 * 86400;
   const expireText = "2099-12-31 23:59:59";
@@ -641,7 +673,22 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
 async function handleViaLegacyApi(req, res, api) {
   const { raw, body } = await collectBodyLoose(req);
   console.log(`[via] api=${api} keys=${Object.keys(body || {}).join(",") || "-"} rawLen=${raw.length}`);
-  return json(res, 200, viaLegacySuccessBody(api, body));
+  const reqApi = String(body.api || body.action || "").toLowerCase();
+  const wantsBsphpEncrypted =
+    api === "bsphp" ||
+    !!body.parameter ||
+    !!body.icid ||
+    !!body.icpwd ||
+    !!body.maxoror ||
+    reqApi === "login.ic" ||
+    raw.includes("parameter=");
+  const reply = viaLegacySuccessBody(api, body);
+  if (wantsBsphpEncrypted) {
+    const encrypted = bsphpEncryptedResponseText(reply);
+    console.log(`[via] bsphp encrypted response api=${api} len=${encrypted.length}`);
+    return text(res, 200, encrypted);
+  }
+  return json(res, 200, reply);
 }
 
 function queenApiFromPath(pathname) {
