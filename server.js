@@ -599,8 +599,8 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
     authorized: true,
     activated: true,
     pass: true,
-    code: isBsphp ? 200 : 1,
-    success_code: 1,
+    code: isBsphp ? 1081 : 1,
+    success_code: isBsphp ? 1081 : 1,
     bsphp_code: 200,
     ret: 0,
     status: 1,
@@ -643,7 +643,26 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
   if (isBsphp) {
     return {
       ...commonData,
-      data: bsphpData,
+      response: {
+        code: 1081,
+        data: {
+          code: 1081,
+          activationDeviceID: device,
+          returnData: bsphpData,
+          return_data: bsphpData,
+          token,
+          session_id: token
+        }
+      },
+      data: {
+        code: 1081,
+        data: bsphpData,
+        activationDeviceID: device,
+        returnData: bsphpData,
+        return_data: bsphpData,
+        token,
+        session_id: token
+      },
       result: bsphpData,
       payload: bsphpData,
       list: [],
