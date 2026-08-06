@@ -551,6 +551,12 @@ function aes128CbcEncryptBase64(key16, plainText) {
   return Buffer.concat([cipher.update(String(plainText), "utf8"), cipher.final()]).toString("base64");
 }
 
+function aes128CbcDecryptBase64(key16, cipherB64) {
+  const key = Buffer.from(String(key16), "utf8");
+  const decipher = crypto.createDecipheriv("aes-128-cbc", key, key);
+  return Buffer.concat([decipher.update(Buffer.from(String(cipherB64), "base64")), decipher.final()]).toString("utf8");
+}
+
 function bsphpEncryptedResponseText(bodyObj) {
   const aesKey = crypto.randomBytes(8).toString("hex").slice(0, 16);
   const plainJson = JSON.stringify(bodyObj);
@@ -561,6 +567,46 @@ function bsphpEncryptedResponseText(bodyObj) {
     Buffer.from(signPlain, "utf8")
   ).toString("base64");
   return `OK|${cipherB64}|${rsaB64}`;
+}
+
+function bsphpEncryptedResponseFromPlainText(plainText) {
+  const aesKey = crypto.randomBytes(8).toString("hex").slice(0, 16);
+  const cipherB64 = aes128CbcEncryptBase64(aesKey, plainText);
+  const signPlain = `0|AES-128-CBC|${aesKey}|${md5Hex(cipherB64)}|text`;
+  const rsaB64 = crypto.publicEncrypt(
+    { key: bsphpServerPublicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
+    Buffer.from(signPlain, "utf8")
+  ).toString("base64");
+  return `OK|${cipherB64}|${rsaB64}`;
+}
+
+function normalizeIncomingBsphpBody(body) {
+  if (!body || typeof body !== "object") return {};
+  const out = { ...body };
+  const parameter = String(out.parameter || "");
+  if (!parameter) return out;
+  try {
+    const decoded = decodeURIComponent(parameter);
+    const parts = decoded.split("|");
+    if (parts.length >= 2) {
+      const encBody = parts[0];
+      const rsaB64 = parts[1];
+      const signPlain = crypto.privateDecrypt(
+        { key: bsphpServerPrivateKeyPem, padding: crypto.constants.RSA_PKCS1_PADDING },
+        Buffer.from(rsaB64, "base64")
+      ).toString("utf8");
+      const signParts = signPlain.split("|");
+      const aesKey = signParts[2];
+      const plainText = aes128CbcDecryptBase64(aesKey, encBody);
+      if (plainText.trim()) {
+        const parsed = Object.fromEntries(new URLSearchParams(plainText));
+        return { ...out, ...parsed, _bsphp_sign: signPlain };
+      }
+    }
+  } catch (e) {
+    out._bsphp_decode_error = e.message;
+  }
+  return out;
 }
 
 function viaLegacySuccessBody(api = "gg", requestBody = {}) {
@@ -691,9 +737,34 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
 
 async function handleViaLegacyApi(req, res, api) {
   const { raw, body } = await collectBodyLoose(req);
-  console.log(`[via] api=${api} keys=${Object.keys(body || {}).join(",") || "-"} rawLen=${raw.length}`);
+  const mergedBody = normalizeIncomingBsphpBody(body);
+  console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
+  const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
+  if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
+    const reply = { code: 1, data: 1, response: { code: 1, data: 1 }, msg: "1", message: "1", success: true, ok: true };
+    return text(res, 200, bsphpEncryptedResponseFromPlainText(JSON.stringify(reply)));
+  }
+  if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
+    const reply = {
+      code: 1,
+      data: {
+        code: 1,
+        response: { code: 1, data: 1 },
+        notice: "",
+        content: "",
+        message: "",
+        status: 1
+      },
+      response: { code: 1, data: { code: 1 } },
+      notice: "",
+      content: "",
+      msg: "ok",
+      message: "ok"
+    };
+    return text(res, 200, bsphpEncryptedResponseText(reply));
+  }
   const wantsBsphpEncrypted = true;
-  const reply = viaLegacySuccessBody(api, body);
+  const reply = viaLegacySuccessBody(api, mergedBody);
   if (wantsBsphpEncrypted) {
     const encrypted = bsphpEncryptedResponseText(reply);
     console.log(`[via] bsphp encrypted response api=${api} len=${encrypted.length}`);
