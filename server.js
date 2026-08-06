@@ -596,10 +596,18 @@ function normalizeIncomingBsphpBody(body) {
         Buffer.from(rsaB64, "base64")
       ).toString("utf8");
       const signParts = signPlain.split("|");
-      const aesKey = signParts[2];
+      const aesKey =
+        Buffer.byteLength(signPlain, "utf8") === 16 ? signPlain :
+        signParts.find(x => Buffer.byteLength(x, "utf8") === 16) ||
+        signParts[2] ||
+        "";
+      if (Buffer.byteLength(aesKey, "utf8") !== 16) {
+        throw new Error(`invalid request aes key length ${Buffer.byteLength(aesKey, "utf8")} signParts=${signParts.length}`);
+      }
       const plainText = aes128CbcDecryptBase64(aesKey, encBody);
       if (plainText.trim()) {
         const parsed = Object.fromEntries(new URLSearchParams(plainText));
+        console.log(`[via] parameter decoded keys=${Object.keys(parsed).join(",") || "-"} signParts=${signParts.length}`);
         return { ...out, ...parsed, _bsphp_sign: signPlain };
       }
     }
