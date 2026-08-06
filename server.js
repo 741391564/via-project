@@ -572,7 +572,7 @@ function bsphpEncryptedResponseText(bodyObj) {
 function bsphpEncryptedResponseFromPlainText(plainText) {
   const aesKey = crypto.randomBytes(8).toString("hex").slice(0, 16);
   const cipherB64 = aes128CbcEncryptBase64(aesKey, plainText);
-  const signPlain = `0|AES-128-CBC|${aesKey}|${md5Hex(cipherB64)}|text`;
+  const signPlain = `0|AES-128-CBC|${aesKey}|${md5Hex(cipherB64)}|json`;
   const rsaB64 = crypto.publicEncrypt(
     { key: bsphpServerPublicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
     Buffer.from(signPlain, "utf8")
@@ -741,8 +741,7 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
-    const reply = { code: 1, data: 1, response: { code: 1, data: 1 }, msg: "1", message: "1", success: true, ok: true };
-    return text(res, 200, bsphpEncryptedResponseFromPlainText(JSON.stringify(reply)));
+    return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
   }
   if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
     const reply = {
