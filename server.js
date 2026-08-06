@@ -525,6 +525,7 @@ async function collectBodyLoose(req) {
 function viaApiFromPath(pathname) {
   const p = String(pathname || "").toLowerCase();
   if (p.endsWith("/api/gg.php") || p.endsWith("/gg.php")) return "gg";
+  if (p.endsWith("/appen.php") || p.endsWith("/api/appen.php")) return "bsphp";
   if (p.endsWith("/api/jihuo.php") || p.endsWith("/jihuo.php")) return "jihuo";
   if (p.endsWith("/api/code.php") || p.endsWith("/code.php")) return "code";
   return "";
@@ -534,25 +535,50 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
   const expire = nowUnix() + 3650 * 86400;
   const expireText = "2099-12-31 23:59:59";
   const token = "via_" + newToken();
+  const reqApi = String(requestBody.api || requestBody.action || "").toLowerCase();
+  const isBsphp =
+    api === "bsphp" ||
+    !!requestBody.parameter ||
+    !!requestBody.icid ||
+    !!requestBody.icpwd ||
+    !!requestBody.maxoror ||
+    reqApi === "login.ic";
   const appid = String(requestBody.appid || requestBody.app_id || requestBody.appId || "257002");
   const kami = String(requestBody.kami || requestBody.card || requestBody.code || requestBody.key || requestBody.km || "123");
   const device = String(requestBody.udid || requestBody.device || requestBody.device_id || requestBody.imei || "auto-device");
+  const bsphpData = [
+    "success",
+    "1081",
+    token,
+    expireText,
+    String(expire),
+    device,
+    kami,
+    appid
+  ].join("|");
   const commonData = {
     api,
     appid,
     app_id: appid,
+    response: "success",
     success: true,
     ok: true,
     valid: true,
     authorized: true,
     activated: true,
     pass: true,
-    code: 1,
+    code: isBsphp ? 200 : 1,
+    success_code: 1,
+    bsphp_code: 200,
     ret: 0,
     status: 1,
     state: 1,
+    state1081: "1081",
     msg: "ok",
     message: "ok",
+    returnData: bsphpData,
+    return_data: bsphpData,
+    activationDeviceID: device,
     token,
     access_token: token,
     auth_token: token,
@@ -582,10 +608,23 @@ function viaLegacySuccessBody(api = "gg", requestBody = {}) {
     features: DEFAULT_FEATURES,
     config: DEFAULT_FEATURES
   };
+  if (isBsphp) {
+    return {
+      ...commonData,
+      data: bsphpData,
+      result: bsphpData,
+      payload: bsphpData,
+      list: [],
+      rows: [],
+      http_code: 200,
+      status_code: 200
+    };
+  }
   return {
     ...commonData,
     data: {
       ...commonData,
+      data: bsphpData,
       list: [],
       rows: []
     },
