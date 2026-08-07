@@ -580,18 +580,6 @@ function bsphpEncryptedResponseFromPlainText(plainText) {
   return `OK|${cipherB64}|${rsaB64}`;
 }
 
-const viaDecodeErrorSeenByIp = new Map();
-
-function rememberViaDecodeError(ip) {
-  const key = String(ip || "unknown");
-  const now = Date.now();
-  const prev = viaDecodeErrorSeenByIp.get(key) || { count: 0, ts: 0 };
-  const count = now - prev.ts > 120000 ? 1 : prev.count + 1;
-  const state = { count, ts: now };
-  viaDecodeErrorSeenByIp.set(key, state);
-  return state;
-}
-
 function viaGgPlainNoticeBody() {
   return {
     code: 1,
@@ -774,12 +762,11 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
-    const state = rememberViaDecodeError(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "-");
-    if (state.count % 2 === 1) {
-      console.log(`[via] fallback internet.in=1 because odd parameter decode failed count=${state.count}`);
+    if (raw.length >= 616) {
+      console.log(`[via] fallback internet.in=1 by rawLen=${raw.length}`);
       return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
     }
-    console.log(`[via] fallback gg.in encrypted json because even parameter decode failed count=${state.count}`);
+    console.log(`[via] fallback gg.in encrypted json by rawLen=${raw.length}`);
     return text(res, 200, bsphpEncryptedResponseText(viaGgPlainNoticeBody()));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
