@@ -880,13 +880,14 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
-    // 手机端 parameter 当前仍解不开时，不能靠轮流猜接口。
-    // bootstrap 第 1 段 internet.in 强校验 response.data == "1"；
-    // 第 2 段 BSphpSeSsL.in 只需要拿到一个非空 session 字符串，"1" 也能用。
-    // 所以 fallback 统一返回 data="1"，避免请求顺序偏移导致 “internet.in 未返回 1”。
-    console.log(`[via] fallback encrypted json data=1 rawLen=${raw.length}`);
+    // 真实手机请求目前统一是 parameter 加密包；未解出 api 时按包体长度做保守分流：
+    // 600 左右是启动 bootstrap/公告探测，必须回 data="1"；
+    // 740+ 是点“激活”后的登录包，继续回 data="1" 会被 UI 原样显示成错误文本“1”。
+    const fallbackLooksLikeLogin = raw.length >= 700;
+    const fallbackBranch = fallbackLooksLikeLogin ? "fallback_decode_error_login_success" : "fallback_decode_error_data_1";
+    console.log(`[via] ${fallbackBranch} rawLen=${raw.length}`);
     appendViaDebug({
-      branch: "fallback_decode_error_data_1",
+      branch: fallbackBranch,
       pathApi: api,
       bsphpApi,
       rawLen: raw.length,
@@ -895,6 +896,10 @@ async function handleViaLegacyApi(req, res, api) {
       decodeError: mergedBody._bsphp_decode_error,
       parameterHead: String(mergedBody.parameter || "").slice(0, 180)
     });
+    if (fallbackLooksLikeLogin) {
+      const reply = viaLegacySuccessBody(api, { ...mergedBody, api: "login.ic", kami: "123", icid: "123", icpwd: "123" });
+      return text(res, 200, bsphpEncryptedResponseText(reply));
+    }
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBodyFallback("1", mergedBody)));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
