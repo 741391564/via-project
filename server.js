@@ -652,6 +652,24 @@ function bsphpEncryptedResponseFromPlainText(plainText) {
   return `OK|${cipherB64}|${rsaB64}`;
 }
 
+function viaFormatChinaDateSpace(date = new Date()) {
+  const d = new Date(date.getTime() + 8 * 3600 * 1000);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function viaCurrentAppSafeCode(offsetSeconds = 0) {
+  return md5Hex(viaFormatChinaDateSpace(new Date(Date.now() + offsetSeconds * 1000)));
+}
+
+function bsphpProtocolBodyFallback(dataValue, requestBody = {}, extraResponse = {}) {
+  const guessed = viaCurrentAppSafeCode(0);
+  return bsphpProtocolBody(dataValue, { ...requestBody, appsafecode: requestBody.appsafecode || guessed }, {
+    ...extraResponse,
+    _appsafecode_guess: guessed
+  });
+}
+
 function bsphpProtocolBody(dataValue, requestBody = {}, extraResponse = {}) {
   const appSafe = String(requestBody.appsafecode || "");
   const response = {
@@ -877,7 +895,7 @@ async function handleViaLegacyApi(req, res, api) {
       decodeError: mergedBody._bsphp_decode_error,
       parameterHead: String(mergedBody.parameter || "").slice(0, 180)
     });
-    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
+    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBodyFallback("1", mergedBody)));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     // bootstrap 第一段检查的是解密 JSON 里的 response.data == "1"，不是裸字符串 1。
@@ -890,7 +908,7 @@ async function handleViaLegacyApi(req, res, api) {
       keys: Object.keys(mergedBody || {}),
       parameterHead: String(mergedBody.parameter || "").slice(0, 180)
     });
-    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
+    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBodyFallback("1", mergedBody)));
   }
   if (bsphpApi === "bsphpsessl.in" || bsphpApi === "phpsessl.in" || bsphpApi === "bsphpsesslin") {
     // bootstrap 第二段会把 response.data 写进 bsPhpSeSsL，必须给非空字符串。
