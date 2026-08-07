@@ -595,15 +595,8 @@ function rememberViaDecodeError(ip) {
 function viaGgPlainNoticeBody() {
   return {
     code: 1,
-    data: {
-      code: 1,
-      response: { code: 1, data: 1 },
-      notice: "",
-      content: "",
-      message: "",
-      status: 1
-    },
-    response: { code: 1, data: { code: 1 } },
+    data: "",
+    response: { code: 1, data: "" },
     notice: "",
     content: "",
     msg: "ok",
@@ -782,11 +775,11 @@ async function handleViaLegacyApi(req, res, api) {
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
     const state = rememberViaDecodeError(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "-");
-    if (state.count === 1) {
-      console.log(`[via] fallback internet.in=1 because first parameter decode failed`);
+    if (state.count % 2 === 1) {
+      console.log(`[via] fallback internet.in=1 because odd parameter decode failed count=${state.count}`);
       return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
     }
-    console.log(`[via] fallback gg.in encrypted json because repeated parameter decode failed count=${state.count}`);
+    console.log(`[via] fallback gg.in encrypted json because even parameter decode failed count=${state.count}`);
     return text(res, 200, bsphpEncryptedResponseText(viaGgPlainNoticeBody()));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
