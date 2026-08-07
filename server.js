@@ -749,6 +749,10 @@ async function handleViaLegacyApi(req, res, api) {
   const mergedBody = normalizeIncomingBsphpBody(body);
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
+  if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
+    console.log(`[via] fallback internet.in=1 because parameter decode failed`);
+    return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
+  }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
   }
