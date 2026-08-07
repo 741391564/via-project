@@ -773,7 +773,7 @@ async function handleViaLegacyApi(req, res, api) {
       msg: "ok",
       message: "ok"
     };
-    return text(res, 200, bsphpEncryptedResponseText(reply));
+    return json(res, 200, reply);
   }
   const wantsBsphpEncrypted = true;
   const reply = viaLegacySuccessBody(api, mergedBody);
