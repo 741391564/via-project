@@ -832,13 +832,12 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
-    const kind = nextViaFallbackKind();
-    if (kind === "internet") {
-      console.log(`[via] fallback internet.in json data=1 by burst count=${viaFallbackBurst.count} rawLen=${raw.length}`);
-      return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
-    }
-    console.log(`[via] fallback BSphpSeSsL.in json data=bsphp666 by burst count=${viaFallbackBurst.count} rawLen=${raw.length}`);
-    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("bsphp666", mergedBody)));
+    // 手机端 parameter 当前仍解不开时，不能靠轮流猜接口。
+    // bootstrap 第 1 段 internet.in 强校验 response.data == "1"；
+    // 第 2 段 BSphpSeSsL.in 只需要拿到一个非空 session 字符串，"1" 也能用。
+    // 所以 fallback 统一返回 data="1"，避免请求顺序偏移导致 “internet.in 未返回 1”。
+    console.log(`[via] fallback encrypted json data=1 rawLen=${raw.length}`);
+    return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     // bootstrap 第一段检查的是解密 JSON 里的 response.data == "1"，不是裸字符串 1。
@@ -850,8 +849,10 @@ async function handleViaLegacyApi(req, res, api) {
   }
   if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
     if (!mergedBody.parameter) {
-      // VerifyEntry.processActivate 的老 NetTool 链路吃明文 JSON；给 BSPHP 三段密文会直接“格式不正确”。
-      return json(res, 200, viaGgPlainNoticeBody());
+      // VerifyEntry.processActivate 的老 NetTool 链路吃 NSData 原始字节。
+      // 这里不能用 application/json，否则 AFNetworking 可能先转 NSDictionary，
+      // 客户端再把 NSDictionary 当 NSData 喂给 NSJSONSerialization 就会“格式不正确”。
+      return text(res, 200, JSON.stringify(viaGgPlainNoticeBody()));
     }
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("", mergedBody)));
   }
