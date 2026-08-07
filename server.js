@@ -9,6 +9,7 @@ const AUTO_PASS = process.env.AUTO_PASS !== "0";
 const SERVER_VERSION = "QueenHybridV17_CLIENT_CODE1_LEGACY_VERIFY_20260802";
 const DATA_DIR = path.join(__dirname, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
+const VIA_DEBUG_PATH = path.join(DATA_DIR, "via_debug.json");
 
 const DEFAULT_FEATURES = {
   radar: true,
@@ -37,6 +38,35 @@ function readDb() {
 
 function writeDb(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+function appendViaDebug(row) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    let arr = [];
+    if (fs.existsSync(VIA_DEBUG_PATH)) {
+      arr = JSON.parse(fs.readFileSync(VIA_DEBUG_PATH, "utf8"));
+      if (!Array.isArray(arr)) arr = [];
+    }
+    arr.push({
+      time_iso: new Date().toISOString(),
+      ...row
+    });
+    arr = arr.slice(-80);
+    fs.writeFileSync(VIA_DEBUG_PATH, JSON.stringify(arr, null, 2));
+  } catch (e) {
+    console.log(`[via-debug] write failed: ${e.message}`);
+  }
+}
+
+function readViaDebug() {
+  try {
+    if (!fs.existsSync(VIA_DEBUG_PATH)) return [];
+    const arr = JSON.parse(fs.readFileSync(VIA_DEBUG_PATH, "utf8"));
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
 
 function nowUnix() {
@@ -837,14 +867,42 @@ async function handleViaLegacyApi(req, res, api) {
     // 第 2 段 BSphpSeSsL.in 只需要拿到一个非空 session 字符串，"1" 也能用。
     // 所以 fallback 统一返回 data="1"，避免请求顺序偏移导致 “internet.in 未返回 1”。
     console.log(`[via] fallback encrypted json data=1 rawLen=${raw.length}`);
+    appendViaDebug({
+      branch: "fallback_decode_error_data_1",
+      pathApi: api,
+      bsphpApi,
+      rawLen: raw.length,
+      rawHead: raw.slice(0, 220),
+      keys: Object.keys(mergedBody || {}),
+      decodeError: mergedBody._bsphp_decode_error,
+      parameterHead: String(mergedBody.parameter || "").slice(0, 180)
+    });
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     // bootstrap 第一段检查的是解密 JSON 里的 response.data == "1"，不是裸字符串 1。
+    appendViaDebug({
+      branch: "internet_data_1",
+      pathApi: api,
+      bsphpApi,
+      rawLen: raw.length,
+      rawHead: raw.slice(0, 220),
+      keys: Object.keys(mergedBody || {}),
+      parameterHead: String(mergedBody.parameter || "").slice(0, 180)
+    });
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("1", mergedBody)));
   }
   if (bsphpApi === "bsphpsessl.in" || bsphpApi === "phpsessl.in" || bsphpApi === "bsphpsesslin") {
     // bootstrap 第二段会把 response.data 写进 bsPhpSeSsL，必须给非空字符串。
+    appendViaDebug({
+      branch: "session_data_bsphp666",
+      pathApi: api,
+      bsphpApi,
+      rawLen: raw.length,
+      rawHead: raw.slice(0, 220),
+      keys: Object.keys(mergedBody || {}),
+      parameterHead: String(mergedBody.parameter || "").slice(0, 180)
+    });
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("bsphp666", mergedBody)));
   }
   if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
@@ -852,8 +910,25 @@ async function handleViaLegacyApi(req, res, api) {
       // VerifyEntry.processActivate 的老 NetTool 链路吃 NSData 原始字节。
       // 这里不能用 application/json，否则 AFNetworking 可能先转 NSDictionary，
       // 客户端再把 NSDictionary 当 NSData 喂给 NSJSONSerialization 就会“格式不正确”。
+      appendViaDebug({
+        branch: "gg_plain_text_json",
+        pathApi: api,
+        bsphpApi,
+        rawLen: raw.length,
+        rawHead: raw.slice(0, 220),
+        keys: Object.keys(mergedBody || {})
+      });
       return text(res, 200, JSON.stringify(viaGgPlainNoticeBody()));
     }
+    appendViaDebug({
+      branch: "gg_encrypted_empty_data",
+      pathApi: api,
+      bsphpApi,
+      rawLen: raw.length,
+      rawHead: raw.slice(0, 220),
+      keys: Object.keys(mergedBody || {}),
+      parameterHead: String(mergedBody.parameter || "").slice(0, 180)
+    });
     return text(res, 200, bsphpEncryptedResponseText(bsphpProtocolBody("", mergedBody)));
   }
   const wantsBsphpEncrypted = true;
@@ -861,6 +936,16 @@ async function handleViaLegacyApi(req, res, api) {
   if (wantsBsphpEncrypted) {
     const encrypted = bsphpEncryptedResponseText(reply);
     console.log(`[via] bsphp encrypted response api=${api} len=${encrypted.length}`);
+    appendViaDebug({
+      branch: "login_or_default_encrypted",
+      pathApi: api,
+      bsphpApi,
+      rawLen: raw.length,
+      rawHead: raw.slice(0, 220),
+      keys: Object.keys(mergedBody || {}),
+      code: reply && reply.response && reply.response.code,
+      parameterHead: String(mergedBody.parameter || "").slice(0, 180)
+    });
     return text(res, 200, encrypted);
   }
   return json(res, 200, reply);
@@ -1095,6 +1180,14 @@ async function handle(req, res) {
   const queenApi = url.searchParams.get("api") || queenApiFromPath(url.pathname);
 
   console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}${url.search} viaApi=${viaApi || "-"} queenApi=${queenApi || "-"} ip=${req.headers["x-forwarded-for"] || req.socket.remoteAddress || "-"}`);
+
+  if (req.method === "GET" && url.pathname === "/debug/via") {
+    return json(res, 200, {
+      ok: true,
+      count: readViaDebug().length,
+      rows: readViaDebug()
+    });
+  }
 
   if (viaApi) {
     return handleViaLegacyApi(req, res, viaApi);
