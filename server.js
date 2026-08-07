@@ -786,14 +786,14 @@ async function handleViaLegacyApi(req, res, api) {
       console.log(`[via] fallback internet.in=1 because first parameter decode failed`);
       return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
     }
-    console.log(`[via] fallback gg.in plain json because repeated parameter decode failed count=${state.count}`);
-    return json(res, 200, viaGgPlainNoticeBody());
+    console.log(`[via] fallback gg.in encrypted json because repeated parameter decode failed count=${state.count}`);
+    return text(res, 200, bsphpEncryptedResponseText(viaGgPlainNoticeBody()));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
   }
   if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
-    return json(res, 200, viaGgPlainNoticeBody());
+    return text(res, 200, bsphpEncryptedResponseText(viaGgPlainNoticeBody()));
   }
   const wantsBsphpEncrypted = true;
   const reply = viaLegacySuccessBody(api, mergedBody);
