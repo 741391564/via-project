@@ -557,6 +557,48 @@ function aes128CbcDecryptBase64(key16, cipherB64) {
   return Buffer.concat([decipher.update(Buffer.from(String(cipherB64), "base64")), decipher.final()]).toString("utf8");
 }
 
+function bsphpRequestKeyCandidates(signPlain, signParts) {
+  const out = [];
+  const add = v => {
+    v = String(v || "");
+    if (Buffer.byteLength(v, "utf8") === 16 && !out.includes(v)) out.push(v);
+  };
+  add(signPlain);
+  for (const p of signParts || []) {
+    add(p);
+    add(p.slice(0, 16));
+    add(p.slice(-16));
+  }
+  for (const m of String(signPlain || "").match(/[A-Za-z0-9]{16}/g) || []) add(m);
+  add(md5Hex(signPlain).slice(0, 16));
+  add("bea48b59853ec3e7");
+  add(md5Hex("bea48b59853ec3e7d99a114f518222").slice(0, 16));
+  add(md5Hex("bsphp666").slice(0, 16));
+  add(md5Hex("appsafecode").slice(0, 16));
+  add(md5Hex("mutualkey").slice(0, 16));
+  return out;
+}
+
+function parseBsphpPlainText(plainText) {
+  const text = String(plainText || "").trim();
+  if (!text) return null;
+  if (text.startsWith("{") && text.endsWith("}")) {
+    try {
+      const obj = JSON.parse(text);
+      return obj && typeof obj === "object" ? obj : null;
+    } catch {}
+  }
+  const parsed = Object.fromEntries(new URLSearchParams(text));
+  if (Object.keys(parsed).length) return parsed;
+  return { raw: text };
+}
+
+function looksLikeBsphpRequest(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  const joined = Object.entries(parsed).map(([k, v]) => `${k}=${v}`).join("&").toLowerCase();
+  return /(^|[=&])(internet\.in|gg\.in|login\.ic)([=&]|$)/.test(joined) || /(^|&)(api|icid|icpwd|appsafecode|mutualkey)=/.test(joined);
+}
+
 function bsphpEncryptedResponseText(bodyObj) {
   const aesKey = crypto.randomBytes(8).toString("hex").slice(0, 16);
   const plainJson = JSON.stringify(bodyObj);
@@ -608,20 +650,20 @@ function normalizeIncomingBsphpBody(body) {
         Buffer.from(rsaB64, "base64")
       ).toString("utf8");
       const signParts = signPlain.split("|");
-      const aesKey =
-        Buffer.byteLength(signPlain, "utf8") === 16 ? signPlain :
-        signParts.find(x => Buffer.byteLength(x, "utf8") === 16) ||
-        signParts[2] ||
-        "";
-      if (Buffer.byteLength(aesKey, "utf8") !== 16) {
-        throw new Error(`invalid request aes key length ${Buffer.byteLength(aesKey, "utf8")} signParts=${signParts.length}`);
+      const candidates = bsphpRequestKeyCandidates(signPlain, signParts);
+      const tried = [];
+      for (const aesKey of candidates) {
+        try {
+          tried.push(aesKey);
+          const plainText = aes128CbcDecryptBase64(aesKey, encBody);
+          const parsed = parseBsphpPlainText(plainText);
+          if (looksLikeBsphpRequest(parsed)) {
+            console.log(`[via] parameter decoded keys=${Object.keys(parsed).join(",") || "-"} signParts=${signParts.length} keyIndex=${tried.length - 1}`);
+            return { ...out, ...parsed, _bsphp_sign: signPlain };
+          }
+        } catch {}
       }
-      const plainText = aes128CbcDecryptBase64(aesKey, encBody);
-      if (plainText.trim()) {
-        const parsed = Object.fromEntries(new URLSearchParams(plainText));
-        console.log(`[via] parameter decoded keys=${Object.keys(parsed).join(",") || "-"} signParts=${signParts.length}`);
-        return { ...out, ...parsed, _bsphp_sign: signPlain };
-      }
+      throw new Error(`request decrypt no candidate matched signLen=${Buffer.byteLength(signPlain, "utf8")} signParts=${signParts.length} candidates=${candidates.length}`);
     }
   } catch (e) {
     out._bsphp_decode_error = e.message;
