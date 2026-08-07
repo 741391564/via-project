@@ -580,6 +580,37 @@ function bsphpEncryptedResponseFromPlainText(plainText) {
   return `OK|${cipherB64}|${rsaB64}`;
 }
 
+const viaDecodeErrorSeenByIp = new Map();
+
+function rememberViaDecodeError(ip) {
+  const key = String(ip || "unknown");
+  const now = Date.now();
+  const prev = viaDecodeErrorSeenByIp.get(key) || { count: 0, ts: 0 };
+  const count = now - prev.ts > 120000 ? 1 : prev.count + 1;
+  const state = { count, ts: now };
+  viaDecodeErrorSeenByIp.set(key, state);
+  return state;
+}
+
+function viaGgPlainNoticeBody() {
+  return {
+    code: 1,
+    data: {
+      code: 1,
+      response: { code: 1, data: 1 },
+      notice: "",
+      content: "",
+      message: "",
+      status: 1
+    },
+    response: { code: 1, data: { code: 1 } },
+    notice: "",
+    content: "",
+    msg: "ok",
+    message: "ok"
+  };
+}
+
 function normalizeIncomingBsphpBody(body) {
   if (!body || typeof body !== "object") return {};
   const out = { ...body };
@@ -750,30 +781,19 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
-    console.log(`[via] fallback internet.in=1 because parameter decode failed`);
-    return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
+    const state = rememberViaDecodeError(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "-");
+    if (state.count === 1) {
+      console.log(`[via] fallback internet.in=1 because first parameter decode failed`);
+      return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
+    }
+    console.log(`[via] fallback gg.in plain json because repeated parameter decode failed count=${state.count}`);
+    return json(res, 200, viaGgPlainNoticeBody());
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
     return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
   }
   if (bsphpApi === "gg.in" || bsphpApi === "ggin") {
-    const reply = {
-      code: 1,
-      data: {
-        code: 1,
-        response: { code: 1, data: 1 },
-        notice: "",
-        content: "",
-        message: "",
-        status: 1
-      },
-      response: { code: 1, data: { code: 1 } },
-      notice: "",
-      content: "",
-      msg: "ok",
-      message: "ok"
-    };
-    return json(res, 200, reply);
+    return json(res, 200, viaGgPlainNoticeBody());
   }
   const wantsBsphpEncrypted = true;
   const reply = viaLegacySuccessBody(api, mergedBody);
