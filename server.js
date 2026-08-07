@@ -634,6 +634,18 @@ function viaGgPlainNoticeBody() {
   };
 }
 
+let viaFallbackBurst = { count: 0, ts: 0 };
+
+function nextViaFallbackKind() {
+  const now = Date.now();
+  if (now - viaFallbackBurst.ts > 3000) {
+    viaFallbackBurst = { count: 1, ts: now };
+  } else {
+    viaFallbackBurst = { count: viaFallbackBurst.count + 1, ts: now };
+  }
+  return viaFallbackBurst.count % 2 === 1 ? "internet" : "gg";
+}
+
 function normalizeIncomingBsphpBody(body) {
   if (!body || typeof body !== "object") return {};
   const out = { ...body };
@@ -804,11 +816,12 @@ async function handleViaLegacyApi(req, res, api) {
   console.log(`[via] api=${api} keys=${Object.keys(mergedBody || {}).join(",") || "-"} rawLen=${raw.length}`);
   const bsphpApi = String(mergedBody.api || mergedBody.action || mergedBody.req || mergedBody.method || api).toLowerCase();
   if (mergedBody._bsphp_decode_error && mergedBody.parameter) {
-    if (raw.length >= 616) {
-      console.log(`[via] fallback internet.in=1 by rawLen=${raw.length}`);
+    const kind = nextViaFallbackKind();
+    if (kind === "internet") {
+      console.log(`[via] fallback internet.in=1 by burst count=${viaFallbackBurst.count} rawLen=${raw.length}`);
       return text(res, 200, bsphpEncryptedResponseFromPlainText("1"));
     }
-    console.log(`[via] fallback gg.in encrypted json by rawLen=${raw.length}`);
+    console.log(`[via] fallback gg.in encrypted json by burst count=${viaFallbackBurst.count} rawLen=${raw.length}`);
     return text(res, 200, bsphpEncryptedResponseText(viaGgPlainNoticeBody()));
   }
   if (bsphpApi === "internet.in" || bsphpApi === "internetin") {
